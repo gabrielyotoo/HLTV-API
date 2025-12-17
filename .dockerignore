@@ -1,0 +1,38 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+
+# Go files (will be built in container)
+*.go
+go.mod
+go.sum
+
+# Build artifacts
+scraper
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*_test.go
+
+# Temporary files
+*.tmp
+*.log
+

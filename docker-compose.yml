@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  hltv-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hltv-scraper
+    restart: unless-stopped
+    volumes:
+      # Mount keywords.txt so you can update it without rebuilding
+      - ./keywords.txt:/app/keywords.txt:ro
+    # Uncomment to add environment variables if needed
+    # environment:
+    #   - LOG_LEVEL=info
