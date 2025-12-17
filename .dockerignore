@@ -6,12 +6,7 @@
 README.md
 LICENSE
 
-# Go files (will be built in container)
-*.go
-go.mod
-go.sum
-
-# Build artifacts
+# Build artifacts (exclude compiled binaries)
 scraper
 *.exe
 *.dll
@@ -29,7 +24,7 @@ scraper
 .DS_Store
 Thumbs.db
 
-# Test files
+# Test files (but keep source files)
 *_test.go
 
 # Temporary files
