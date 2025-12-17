@@ -1,15 +1,62 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/gocolly/colly/v2"
 )
 
+// watchKeywordsMap stores keywords in a map for O(1) lookup (case insensitive)
+var watchKeywordsMap = make(map[string]bool)
+
+// initKeywords initializes the keywords map from a file and/or default list
+func initKeywords() error {
+	// Try to load from keywords.txt file first
+	file, err := os.Open("keywords.txt")
+	if err == nil {
+		defer file.Close()
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			keyword := strings.TrimSpace(scanner.Text())
+			if keyword != "" && !strings.HasPrefix(keyword, "#") {
+				watchKeywordsMap[strings.ToLower(keyword)] = true
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("error reading keywords.txt: %w", err)
+		}
+		log.Printf("Loaded %d keywords from keywords.txt", len(watchKeywordsMap))
+	}
+	return nil
+}
+
+// checkKeywords checks if any of the watch keywords are found in the text (case insensitive)
+// Returns a slice of found keywords
+func checkKeywords(text string) []string {
+	found := []string{}
+	lowerText := strings.ToLower(text)
+
+	// Check each keyword in the map
+	for keyword := range watchKeywordsMap {
+		if strings.Contains(lowerText, keyword) {
+			found = append(found, keyword)
+		}
+	}
+
+	return found
+}
+
 func main() {
+	// Initialize keywords from file or defaults
+	if err := initKeywords(); err != nil {
+		log.Fatalf("Failed to initialize keywords: %v", err)
+	}
+
 	// Create a new collector
 	c := colly.NewCollector(
 		// Visit only domains
@@ -55,6 +102,15 @@ func main() {
 			parsedURL.Fragment = ""
 			// Reconstruct URL without fragment
 			cleanURL := parsedURL.String()
+
+			// Check for keywords in link text
+			linkText := e.Text
+			foundKeywords := checkKeywords(linkText)
+			if len(foundKeywords) > 0 {
+				log.Printf("🔔 SPECIAL ALERT: Found keywords [%s] in link text: %q -> %s",
+					strings.Join(foundKeywords, ", "), linkText, cleanURL)
+			}
+
 			fmt.Printf("News link found: %q -> %s (cleaned: %s)\n", e.Text, link, cleanURL)
 			e.Request.Visit(cleanURL)
 		}
@@ -69,6 +125,15 @@ func main() {
 	c.OnResponse(func(r *colly.Response) {
 		if strings.HasPrefix(r.Request.URL.Path, "/news") {
 			fmt.Printf("Scraping news page: %s (Status: %d)\n", r.Request.URL.String(), r.StatusCode)
+
+			// Check for keywords in the page content
+			bodyText := string(r.Body)
+			foundKeywords := checkKeywords(bodyText)
+			if len(foundKeywords) > 0 {
+				log.Printf("🔔 SPECIAL ALERT: Found keywords [%s] on page: %s",
+					strings.Join(foundKeywords, ", "), r.Request.URL.String())
+			}
+
 			// Add your data extraction logic here
 		}
 	})
