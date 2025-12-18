@@ -1,56 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/gocolly/colly/v2"
 )
-
-// watchKeywordsMap stores keywords in a map for O(1) lookup (case insensitive)
-var watchKeywordsMap = make(map[string]bool)
-
-// initKeywords initializes the keywords map from a file and/or default list
-func initKeywords() error {
-	// Try to load from keywords-news.txt file first
-	file, err := os.Open("keywords-news.txt")
-	if err == nil {
-		defer file.Close()
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			keyword := strings.TrimSpace(scanner.Text())
-			if keyword != "" && !strings.HasPrefix(keyword, "#") {
-				watchKeywordsMap[strings.ToLower(keyword)] = true
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("error reading keywords-news.txt: %w", err)
-		}
-		log.Printf("Loaded %d keywords from keywords-news.txt", len(watchKeywordsMap))
-	}
-	return nil
-}
-
-// checkKeywords checks if any of the watch keywords are found in the text (case insensitive)
-// Returns a slice of found keywords
-func checkKeywords(text string) []string {
-	found := []string{}
-	lowerText := strings.ToLower(text)
-
-	// Check each keyword in the map
-	for keyword := range watchKeywordsMap {
-		if strings.Contains(lowerText, keyword) {
-			found = append(found, keyword)
-		}
-	}
-
-	return found
-}
 
 // runScraper executes a single scraping run
 func runScraper() error {
@@ -60,7 +17,17 @@ func runScraper() error {
 		colly.AllowedDomains("www.hltv.org", "hltv.org"),
 	)
 
-	// Before making a request - allow homepage, but only /news paths after that
+	// Track URLs that came from hotmatch-box links (one level deep only)
+	hotmatchBoxURLs := make(map[string]bool)
+
+	// Helper function to normalize URLs consistently (remove fragment only)
+	normalizeURL := func(u *url.URL) string {
+		uCopy := *u // Make a copy to avoid modifying the original
+		uCopy.Fragment = ""
+		return uCopy.String()
+	}
+
+	// Before making a request - allow homepage, /news paths, and match paths
 	c.OnRequest(func(r *colly.Request) {
 		// Remove hash fragment if present
 		if r.URL.Fragment != "" {
@@ -72,16 +39,61 @@ func runScraper() error {
 			fmt.Println("Visiting homepage:", r.URL.String())
 			return
 		}
-		// Only process requests to /news paths
-		if !strings.HasPrefix(r.URL.Path, "/news") {
-			r.Abort()
-			return
+
+		// Normalize URL for comparison
+		normalizedURL := normalizeURL(r.URL)
+
+		// Allow /news paths and match paths (from hotmatch-box)
+		if !strings.HasPrefix(r.URL.Path, "/news") && !strings.HasPrefix(r.URL.Path, "/matches") {
+			// Check if this is a hotmatch-box URL we're tracking
+			if !hotmatchBoxURLs[normalizedURL] {
+				r.Abort()
+				return
+			}
 		}
 		fmt.Println("Visiting", r.URL.String())
 	})
 
+	// Handle hotmatch-box anchor elements (one level deep only)
+	c.OnHTML("a.hotmatch-box[href]", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+
+		// Resolve relative URLs to absolute URLs
+		absoluteURL := e.Request.AbsoluteURL(link)
+
+		// Parse the absolute URL
+		parsedURL, err := url.Parse(absoluteURL)
+		if err != nil {
+			return
+		}
+
+		// Normalize URL (remove fragment and query)
+		cleanURL := normalizeURL(parsedURL)
+
+		// Mark this URL as coming from hotmatch-box (one level deep)
+		hotmatchBoxURLs[cleanURL] = true
+
+		// Check for keywords in link text (use matches keywords for hotmatch-box)
+		linkText := e.Text
+		foundKeywords := checkKeywords(linkText, true) // true = isMatchPage
+		if len(foundKeywords) > 0 {
+			log.Printf("🔔 SPECIAL ALERT: Found keywords [%s] in hotmatch-box link text: %q -> %s",
+				strings.Join(foundKeywords, ", "), linkText, cleanURL)
+		}
+
+		fmt.Printf("Hotmatch-box link found: %q -> %s (cleaned: %s)\n", e.Text, link, cleanURL)
+		e.Request.Visit(cleanURL)
+	})
+
 	// On every a element which has href attribute call callback
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		// Skip if we're on a page that came from a hotmatch-box link (one level deep only)
+		// Normalize current URL for comparison
+		currentURL := normalizeURL(e.Request.URL)
+		if hotmatchBoxURLs[currentURL] {
+			return // Don't follow links on hotmatch-box pages
+		}
+
 		link := e.Attr("href")
 
 		// Resolve relative URLs to absolute URLs
@@ -100,9 +112,9 @@ func runScraper() error {
 			// Reconstruct URL without fragment
 			cleanURL := parsedURL.String()
 
-			// Check for keywords in link text
+			// Check for keywords in link text (use news keywords for news links)
 			linkText := e.Text
-			foundKeywords := checkKeywords(linkText)
+			foundKeywords := checkKeywords(linkText, false) // false = isNewsPage
 			if len(foundKeywords) > 0 {
 				log.Printf("🔔 SPECIAL ALERT: Found keywords [%s] in link text: %q -> %s",
 					strings.Join(foundKeywords, ", "), linkText, cleanURL)
@@ -118,17 +130,27 @@ func runScraper() error {
 		log.Println("Something went wrong:", err)
 	})
 
-	// On response - only process pages from /news paths
+	// On response - process pages from /news paths and hotmatch-box pages
 	c.OnResponse(func(r *colly.Response) {
-		if strings.HasPrefix(r.Request.URL.Path, "/news") {
-			fmt.Printf("Scraping news page: %s (Status: %d)\n", r.Request.URL.String(), r.StatusCode)
+		// Normalize URL for comparison
+		currentURL := normalizeURL(r.Request.URL)
+		isHotmatchBoxPage := hotmatchBoxURLs[currentURL]
 
-			// Check for keywords in the page content
+		if strings.HasPrefix(r.Request.URL.Path, "/news") || isHotmatchBoxPage {
+			pageType := "news"
+			isMatchPage := false
+			if isHotmatchBoxPage {
+				pageType = "hotmatch-box"
+				isMatchPage = true
+			}
+			fmt.Printf("Scraping %s page: %s (Status: %d)\n", pageType, r.Request.URL.String(), r.StatusCode)
+
+			// Check for keywords in the page content (use appropriate keyword map)
 			bodyText := string(r.Body)
-			foundKeywords := checkKeywords(bodyText)
+			foundKeywords := checkKeywords(bodyText, isMatchPage)
 			if len(foundKeywords) > 0 {
-				log.Printf("🔔 SPECIAL ALERT: Found keywords [%s] on page: %s",
-					strings.Join(foundKeywords, ", "), r.Request.URL.String())
+				log.Printf("🔔 SPECIAL ALERT: Found keywords [%s] on %s page: %s",
+					strings.Join(foundKeywords, ", "), pageType, r.Request.URL.String())
 			}
 
 			// Add your data extraction logic here
@@ -138,32 +160,4 @@ func runScraper() error {
 	// Start scraping from the homepage
 	log.Println("Starting scraper run from hltv.org...")
 	return c.Visit("https://www.hltv.org/")
-}
-
-func main() {
-	// Initialize keywords from file or defaults
-	if err := initKeywords(); err != nil {
-		log.Fatalf("Failed to initialize keywords: %v", err)
-	}
-
-	// Run scraper immediately on startup
-	log.Println("Running initial scrape...")
-	if err := runScraper(); err != nil {
-		log.Printf("Error during initial scrape: %v", err)
-	}
-
-	// Create a ticker that fires every 30 minutes
-	ticker := time.NewTicker(30 * time.Minute)
-	defer ticker.Stop()
-
-	log.Println("Scraper will run every 30 minutes. Waiting for next run...")
-
-	// Run scraper every 30 minutes
-	for range ticker.C {
-		log.Println("Starting scheduled scrape...")
-		if err := runScraper(); err != nil {
-			log.Printf("Error during scheduled scrape: %v", err)
-		}
-		log.Println("Scrape completed. Next run in 30 minutes...")
-	}
 }
