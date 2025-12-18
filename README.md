@@ -39,4 +39,4 @@ go run scraper.go
 
 ## Configuration
 
-Edit `keywords.txt` to customize which keywords trigger special alerts. One keyword per line, case-insensitive.
+Edit `keywords-news.txt` to customize which keywords trigger special alerts for news. One keyword per line, case-insensitive.

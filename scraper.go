@@ -16,8 +16,8 @@ var watchKeywordsMap = make(map[string]bool)
 
 // initKeywords initializes the keywords map from a file and/or default list
 func initKeywords() error {
-	// Try to load from keywords.txt file first
-	file, err := os.Open("keywords.txt")
+	// Try to load from keywords-news.txt file first
+	file, err := os.Open("keywords-news.txt")
 	if err == nil {
 		defer file.Close()
 		scanner := bufio.NewScanner(file)
@@ -28,9 +28,9 @@ func initKeywords() error {
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("error reading keywords.txt: %w", err)
+			return fmt.Errorf("error reading keywords-news.txt: %w", err)
 		}
-		log.Printf("Loaded %d keywords from keywords.txt", len(watchKeywordsMap))
+		log.Printf("Loaded %d keywords from keywords-news.txt", len(watchKeywordsMap))
 	}
 	return nil
 }

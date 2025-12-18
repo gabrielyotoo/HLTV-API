@@ -8,8 +8,8 @@ services:
     container_name: hltv-scraper
     restart: unless-stopped
     volumes:
-      # Mount keywords.txt so you can update it without rebuilding
-      - ./keywords.txt:/app/keywords.txt:ro
+      # Mount keywords-news.txt so you can update it without rebuilding
+      - ./keywords-news.txt:/app/keywords-news.txt:ro
     # Uncomment to add environment variables if needed
     # environment:
     #   - LOG_LEVEL=info

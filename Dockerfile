@@ -15,7 +15,7 @@ RUN go mod download
 
 # Copy source code
 COPY scraper.go ./
-COPY keywords.txt ./
+COPY keywords-news.txt ./
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o scraper ./scraper.go
@@ -31,8 +31,8 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/scraper .
 
-# Copy keywords.txt
-COPY --from=builder /app/keywords.txt .
+# Copy keywords-news.txt
+COPY --from=builder /app/keywords-news.txt .
 
 # Run the scraper
 CMD ["./scraper"]

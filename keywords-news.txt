@@ -1,8 +1,7 @@
-# Keywords file - one keyword per line
+# Keywords file for news - one keyword per line
 # Lines starting with # are comments and will be ignored
 # Keywords are case-insensitive
 
 brazil
 furia
 rio
-
