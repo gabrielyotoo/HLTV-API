@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -51,12 +52,8 @@ func checkKeywords(text string) []string {
 	return found
 }
 
-func main() {
-	// Initialize keywords from file or defaults
-	if err := initKeywords(); err != nil {
-		log.Fatalf("Failed to initialize keywords: %v", err)
-	}
-
+// runScraper executes a single scraping run
+func runScraper() error {
 	// Create a new collector
 	c := colly.NewCollector(
 		// Visit only domains
@@ -139,6 +136,34 @@ func main() {
 	})
 
 	// Start scraping from the homepage
-	fmt.Println("Starting scraper from hltv.org...")
-	c.Visit("https://www.hltv.org/")
+	log.Println("Starting scraper run from hltv.org...")
+	return c.Visit("https://www.hltv.org/")
+}
+
+func main() {
+	// Initialize keywords from file or defaults
+	if err := initKeywords(); err != nil {
+		log.Fatalf("Failed to initialize keywords: %v", err)
+	}
+
+	// Run scraper immediately on startup
+	log.Println("Running initial scrape...")
+	if err := runScraper(); err != nil {
+		log.Printf("Error during initial scrape: %v", err)
+	}
+
+	// Create a ticker that fires every 30 minutes
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("Scraper will run every 30 minutes. Waiting for next run...")
+
+	// Run scraper every 30 minutes
+	for range ticker.C {
+		log.Println("Starting scheduled scrape...")
+		if err := runScraper(); err != nil {
+			log.Printf("Error during scheduled scrape: %v", err)
+		}
+		log.Println("Scrape completed. Next run in 30 minutes...")
+	}
 }
